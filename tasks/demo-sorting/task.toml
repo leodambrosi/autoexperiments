@@ -1,0 +1,17 @@
+[task]
+name = "sorting-speed"
+run_command = "python3 sort_bench.py"
+time_budget = 30
+mutable_files = ["sort_bench.py"]
+readonly_files = []
+tips = """
+- The benchmark sorts random integer arrays and reports throughput.
+- You can change the sorting algorithm, data structures, use numpy, or any other approach.
+- The metric is elements sorted per second — higher is better.
+"""
+
+[metric]
+name = "throughput"
+direction = "maximize"
+extract_pattern = "^throughput:\\s+(\\S+)"
+format = ".0f"

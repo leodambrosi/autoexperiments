@@ -1,0 +1,25 @@
+[task]
+name = "gpt-pretraining"
+run_command = "uv run train.py"
+time_budget = 300
+setup_command = "uv run prepare.py"
+mutable_files = ["train.py"]
+readonly_files = ["prepare.py"]
+tips = """
+- The primary knob for model size is DEPTH (number of transformer layers). Width is derived: model_dim = DEPTH * ASPECT_RATIO.
+- VRAM is a soft constraint. Some increase is acceptable for meaningful metric gains, but should not blow up dramatically.
+- Simplicity criterion: all else being equal, simpler is better. A small improvement that adds ugly complexity is not worth it. Removing code for equal or better results is a great outcome.
+- Everything in train.py is fair game: architecture, optimizer, hyperparameters, batch size, model size, window patterns, activation functions, etc.
+- The training always runs for exactly 5 minutes (wall clock, excluding compilation warmup). This means experiments are directly comparable regardless of what you change.
+"""
+
+[metric]
+name = "val_bpb"
+direction = "minimize"
+extract_pattern = "^val_bpb:\\s+(\\S+)"
+format = ".6f"
+
+[constraints.peak_vram_mb]
+extract_pattern = "^peak_vram_mb:\\s+(\\S+)"
+warn = 50000
+hard = 80000

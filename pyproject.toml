@@ -1,0 +1,10 @@
+[project]
+name = "autoexperiments"
+version = "0.1.0"
+description = "Generic framework for autonomous AI-driven experimentation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+autoexp = "autoexperiments.cli:main"
