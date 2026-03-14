@@ -20,6 +20,7 @@ from .runner import run_experiment
 from .tracker import ExperimentTracker
 from .program_gen import write_program
 from .git_ops import current_commit, snapshot_files
+from .agent import run_agent
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -137,6 +138,24 @@ def cmd_history(args: argparse.Namespace) -> None:
     tracker.close()
 
 
+def cmd_agent(args: argparse.Namespace) -> None:
+    """Run the autonomous experiment agent."""
+    task_dir = Path(args.task_dir).resolve()
+    config = TaskConfig.from_file(task_dir / "task.toml")
+
+    print(f"Starting autonomous agent for: {config.name}")
+    print(f"Model: {args.model}")
+    print(f"Max iterations: {args.max_iterations}")
+
+    run_agent(
+        task_dir=task_dir,
+        config=config,
+        model=args.model,
+        max_iterations=args.max_iterations,
+        api_key=args.api_key,
+    )
+
+
 def cmd_export(args: argparse.Namespace) -> None:
     """Export results to TSV."""
     task_dir = Path(args.task_dir).resolve()
@@ -179,6 +198,13 @@ def main():
     p_hist.add_argument("task_dir", help="Path to task directory")
     p_hist.add_argument("-n", "--last", type=int, default=20, help="Number of recent experiments to show")
 
+    # agent
+    p_agent = sub.add_parser("agent", help="Run autonomous experiment agent")
+    p_agent.add_argument("task_dir", help="Path to task directory")
+    p_agent.add_argument("-m", "--model", default="gemini-2.5-flash", help="Gemini model (default: gemini-2.5-flash)")
+    p_agent.add_argument("-n", "--max-iterations", type=int, default=50, help="Max agent iterations (default: 50)")
+    p_agent.add_argument("--api-key", help="Google API key (or set GEMINI_API_KEY env var)")
+
     # export
     p_export = sub.add_parser("export", help="Export results to TSV")
     p_export.add_argument("task_dir", help="Path to task directory")
@@ -189,6 +215,7 @@ def main():
     commands = {
         "init": cmd_init,
         "run": cmd_run,
+        "agent": cmd_agent,
         "history": cmd_history,
         "export": cmd_export,
     }
