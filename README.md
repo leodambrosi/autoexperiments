@@ -1,6 +1,6 @@
 # autoexperiments
 
-A framework for autonomous AI-driven experimentation. A Gemini agent runs in a loop: modify code, run an experiment, measure the result, keep or discard, repeat.
+A framework for autonomous AI-driven experimentation. Inspired by [autoresearch](https://github.com/karpathy/autoresearch). A Gemini agent runs in a loop: modify code, run an experiment, measure the result, keep or discard, repeat.
 
 You define the task (what to run, what to optimize, what files the agent can touch). The framework handles execution, timeout enforcement, metric extraction, result tracking, and the agent loop.
 
