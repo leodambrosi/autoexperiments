@@ -1,25 +1,33 @@
 # autoexperiments
 
-A generic framework for autonomous AI-driven experimentation. Inspired by [autoresearch](https://github.com/karpathy/autoresearch).
+A framework for autonomous AI-driven experimentation. A Gemini agent runs in a loop: modify code, run an experiment, measure the result, keep or discard, repeat.
 
-An AI agent runs in a loop: modify code, run an experiment, measure the result, keep or discard, repeat. You define the task (what to run, what to optimize, what files the agent can touch), and the framework handles the rest — execution, timeout enforcement, metric extraction, result tracking, and agent prompt generation.
+You define the task (what to run, what to optimize, what files the agent can touch). The framework handles execution, timeout enforcement, metric extraction, result tracking, and the agent loop.
 
 ## Quick start
 
 ```bash
-# 1. Define your task in a task.toml (see tasks/demo-sorting/ for an example)
+# Install
+pip install -e .
 
-# 2. Initialize — validates config and generates program.md for the agent
-python3 -m autoexperiments.cli init tasks/demo-sorting
+# Set your Gemini API key
+export GEMINI_API_KEY=your-key-here
 
-# 3. Run a single experiment
-python3 -m autoexperiments.cli run tasks/demo-sorting -d "baseline"
+# Define a task (see "Defining a task" below), then:
+
+# 1. Initialize — validates config, generates program.md
+autoexp init tasks/my-task
+
+# 2. (Optional) Edit program.md to add strategy, tips, failed experiments
+
+# 3. Run the agent
+autoexp agent tasks/my-task
 
 # 4. View history
-python3 -m autoexperiments.cli history tasks/demo-sorting
+autoexp history tasks/my-task
 
 # 5. Export to TSV
-python3 -m autoexperiments.cli export tasks/demo-sorting
+autoexp export tasks/my-task
 ```
 
 ## Defining a task
@@ -48,42 +56,93 @@ warn = 50000
 hard = 80000
 ```
 
-Your run command must print the metric (and any constraints) to stdout in a grep-friendly format, e.g.:
+Your run command must print the metric (and any constraints) to stdout:
 
 ```
 val_loss: 0.123456
 peak_vram_mb: 45000.0
 ```
 
-## Running with an agent
+## Running the agent
 
-After `autoexp init`, point your AI agent (Claude Code, Codex, etc.) at the generated `program.md` in the task directory. The program.md contains the full autonomous experiment protocol — the agent will loop indefinitely, modifying code, running experiments, and keeping improvements.
+```bash
+# Default: gemini-3.1-pro-preview, 50 iterations
+autoexp agent tasks/my-task
+
+# Use a cheaper model
+autoexp agent tasks/my-task -m gemini-3-flash-preview
+
+# More iterations
+autoexp agent tasks/my-task -n 100
+```
+
+The agent gets five tools:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read files in the task directory |
+| `edit_file` | Find-and-replace in mutable files |
+| `run_experiment` | Run the task, extract metric, classify as keep/discard |
+| `view_history` | Query past experiment results |
+| `bash` | Shell commands (git commit, reset, diff, etc.) |
+
+On each experiment, the framework automatically:
+- Runs the command with a 2x time budget hard timeout
+- Extracts the metric via regex
+- Compares to the best kept result
+- Logs to SQLite as `keep` (new best) or `discard`
+- Returns `improved: true/false` to the agent
+
+The agent is expected to `git reset --hard HEAD~1` when `improved: false`.
+
+## Steering the agent
+
+`program.md` is the agent's system prompt. `autoexp init` generates a default one from `task.toml`, but you should edit it to add:
+
+- Current best metric and the config that achieved it
+- A table of failed experiments so the agent doesn't repeat them
+- Strategy guidance (what to try next, what phases to follow)
+- Hardware constraints and gotchas
+
+The agent reads this at startup. Update it between runs to refine strategy.
+
+## Viewing results
+
+```bash
+# Last 20 experiments
+autoexp history tasks/my-task
+
+# Last 50
+autoexp history tasks/my-task -n 50
+
+# Export all to TSV
+autoexp export tasks/my-task
+```
+
+Results are stored in `tasks/my-task/.autoexp/experiments.db` (SQLite).
 
 ## Architecture
 
 ```
 autoexperiments/
-  task_config.py   — loads and validates task.toml
-  runner.py        — executes experiments, enforces timeouts, extracts metrics
-  tracker.py       — SQLite-backed experiment history with lineage tracing
-  git_ops.py       — git operations for branching, committing, reverting
-  program_gen.py   — generates agent program.md from task config
-  cli.py           — CLI entry point (init, run, history, export)
-
-tasks/
-  gpt-pretraining/ — port of karpathy/autoresearch
-  demo-sorting/    — simple CPU-only demo task
+  cli.py           — CLI: init, agent, history, export
+  agent.py         — Gemini agent loop with tool dispatch
+  runner.py        — run experiments, enforce timeouts, extract metrics, classify & log
+  tracker.py       — SQLite experiment history
+  task_config.py   — load and validate task.toml
+  git_ops.py       — git branch, commit, reset, snapshot
+  program_gen.py   — generate program.md from task config
 ```
 
 ## Example tasks
 
-### GPT pretraining (`tasks/gpt-pretraining/`)
+### LLM fine-tuning (`tasks/llm-finetune/`)
 
-The original autoresearch setup: single-GPU GPT pretraining with a 5-minute time budget. Requires an NVIDIA GPU and `uv`. Copy `prepare.py` and `train.py` from autoresearch into this directory.
+LoRA fine-tuning of Qwen3.5-2B with thinking traces. Runs on CUDA or Apple Silicon MPS. 5-minute time budget per experiment.
 
 ### Sorting benchmark (`tasks/demo-sorting/`)
 
-A simple CPU-only demo: optimize a sorting benchmark for maximum throughput. No GPU required — good for testing the framework.
+CPU-only demo: optimize a sorting benchmark for throughput. No GPU required — good for testing the framework.
 
 ## License
 
