@@ -3,7 +3,7 @@ CLI entry point for autoexperiments.
 
 Commands:
   autoexp init <task_dir>       — validate task.toml and generate program.md
-  autoexp run <task_dir>        — run a single experiment and print results
+  autoexp agent <task_dir>      — run autonomous experiment agent
   autoexp history <task_dir>    — show experiment history
   autoexp export <task_dir>     — export results to TSV
 """
@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 
 from .task_config import TaskConfig
-from .runner import run_and_record
 from .tracker import ExperimentTracker
 from .program_gen import write_program
 from .agent import run_agent
@@ -47,45 +46,6 @@ def cmd_init(args: argparse.Namespace) -> None:
     # Generate program.md
     program_path = write_program(config, task_dir / "program.md")
     print(f"\nGenerated: {program_path}")
-
-
-def cmd_run(args: argparse.Namespace) -> None:
-    """Run a single experiment."""
-    task_dir = Path(args.task_dir).resolve()
-    config = TaskConfig.from_file(task_dir / "task.toml")
-
-    print(f"Running: {config.run_command}")
-    print(f"Time budget: {config.time_budget}s (hard timeout: {config.time_budget * 2}s)")
-    print()
-
-    tracker = ExperimentTracker(task_dir / ".autoexp" / "experiments.db")
-    result, status, improved = run_and_record(
-        config, task_dir, tracker,
-        description=args.description or "",
-        log_path=task_dir / "run.log",
-    )
-    tracker.close()
-
-    print(f"Status: {status}")
-    print(f"Wall time: {result.wall_seconds:.1f}s")
-
-    if result.metric is not None:
-        fmt = config.metric.format
-        print(f"{config.metric.name}: {result.metric:{fmt}}")
-        if improved:
-            print("  ✓ New best!")
-    else:
-        print(f"{config.metric.name}: (not found in output)")
-
-    for name, value in result.constraints.items():
-        constraint = next((c for c in config.constraints if c.name == name), None)
-        if constraint:
-            level = constraint.check(value)
-            marker = " ⚠" if level == "warn" else " ✗" if level == "fail" else ""
-            print(f"{name}: {value:.1f}{marker}")
-
-    if result.crashed:
-        print(f"\n--- Last 20 lines ---\n{_tail(result.tail, 20)}")
 
 
 def cmd_history(args: argparse.Namespace) -> None:
@@ -158,11 +118,6 @@ def cmd_export(args: argparse.Namespace) -> None:
     print(f"Exported to {output}")
 
 
-def _tail(text: str, n: int) -> str:
-    lines = text.strip().splitlines()
-    return "\n".join(lines[-n:])
-
-
 def main():
     parser = argparse.ArgumentParser(
         prog="autoexp",
@@ -173,11 +128,6 @@ def main():
     # init
     p_init = sub.add_parser("init", help="Validate task config and generate program.md")
     p_init.add_argument("task_dir", help="Path to task directory containing task.toml")
-
-    # run
-    p_run = sub.add_parser("run", help="Run a single experiment")
-    p_run.add_argument("task_dir", help="Path to task directory")
-    p_run.add_argument("-d", "--description", default="", help="Description of this experiment")
 
     # history
     p_hist = sub.add_parser("history", help="Show experiment history")
@@ -200,7 +150,6 @@ def main():
 
     commands = {
         "init": cmd_init,
-        "run": cmd_run,
         "agent": cmd_agent,
         "history": cmd_history,
         "export": cmd_export,
