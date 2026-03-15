@@ -144,7 +144,7 @@ autoexp agent tasks/my-task -m gemini-3-flash-preview
 autoexp agent tasks/my-task -n 100
 ```
 
-The agent gets five tools:
+The agent gets six tools:
 
 | Tool | Description |
 |------|-------------|
@@ -152,6 +152,7 @@ The agent gets five tools:
 | `edit_file` | Find-and-replace in mutable files |
 | `run_experiment` | Auto-commit, run, extract metric, auto-revert on failure |
 | `view_history` | Query past experiment results |
+| `view_learning` | Summarize what families of changes are working/failing |
 | `bash` | Shell commands for inspecting files and environment |
 
 ## Steering the agent
@@ -174,6 +175,9 @@ autoexp history tasks/my-task
 # Last 50
 autoexp history tasks/my-task -n 50
 
+# Systematic lessons from recent experiments
+autoexp lessons tasks/my-task -n 40
+
 # Monitor a running experiment
 tail -f tasks/my-task/run.log
 
@@ -187,8 +191,9 @@ Results are stored in `tasks/my-task/.autoexp/experiments.db` (SQLite).
 
 ```
 autoexperiments/
-  cli.py           — CLI: init, agent, history, export
+  cli.py           — CLI: init, agent, history, lessons, export
   agent.py         — Gemini agent loop with tool dispatch
+  learning.py      — systematic learning summaries from experiment history
   runner.py        — run experiments, stream output, extract metrics, classify & log
   tracker.py       — SQLite experiment history
   task_config.py   — load and validate task.toml

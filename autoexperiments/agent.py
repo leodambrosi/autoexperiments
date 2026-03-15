@@ -20,9 +20,12 @@ from google import genai
 from google.genai import types
 
 from .git_ops import has_git
+from .learning import learning_payload
 from .runner import run_and_record
 from .task_config import TaskConfig
 from .tracker import ExperimentTracker
+
+BASH_TIMEOUT_SECONDS = 120
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +92,19 @@ TOOL_DECLARATIONS = [
                 "last_n": {
                     "type": "integer",
                     "description": "Number of recent experiments to show (default 10)",
+                },
+            },
+        },
+    ),
+    types.FunctionDeclaration(
+        name="view_learning",
+        description="View systematic learning from recent experiments: what families worked, failed, and what to prioritize next.",
+        parameters_json_schema={
+            "type": "object",
+            "properties": {
+                "last_n": {
+                    "type": "integer",
+                    "description": "Number of recent experiments to analyze (default 40)",
                 },
             },
         },
@@ -259,6 +275,20 @@ def _tool_view_history(task_dir: Path, config: TaskConfig, tracker: ExperimentTr
     }
 
 
+def _tool_view_learning(task_dir: Path, config: TaskConfig, tracker: ExperimentTracker, args: dict) -> dict:
+    last_n = args.get("last_n", 40)
+    records = tracker.history(last_n=last_n)
+    if not records:
+        return {"message": "No experiments recorded yet."}
+    return learning_payload(
+        records=records,
+        direction=config.metric.direction,
+        metric_name=config.metric.name,
+        metric_format=config.metric.format,
+        last_n=last_n,
+    )
+
+
 def _tool_bash(task_dir: Path, args: dict) -> dict:
     command = args["command"].strip()
     if not command:
@@ -322,7 +352,7 @@ def _tool_bash(task_dir: Path, args: dict) -> dict:
             cwd=task_dir,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=BASH_TIMEOUT_SECONDS,
         )
         output = {
             "returncode": proc.returncode,
@@ -331,7 +361,7 @@ def _tool_bash(task_dir: Path, args: dict) -> dict:
         }
         return output
     except subprocess.TimeoutExpired:
-        return {"error": "Command timed out after 30s"}
+        return {"error": f"Command timed out after {BASH_TIMEOUT_SECONDS}s"}
 
 
 # ---------------------------------------------------------------------------
@@ -343,8 +373,30 @@ TOOL_DISPATCH = {
     "edit_file": lambda td, cfg, tr, args: _tool_edit_file(td, cfg, args),
     "run_experiment": _tool_run_experiment,
     "view_history": _tool_view_history,
+    "view_learning": _tool_view_learning,
     "bash": lambda td, cfg, tr, args: _tool_bash(td, args),
 }
+
+
+def _build_learning_message(config: TaskConfig, tracker: ExperimentTracker, last_n: int = 40) -> str | None:
+    records = tracker.history(last_n=last_n)
+    if not records:
+        return None
+    payload = learning_payload(
+        records=records,
+        direction=config.metric.direction,
+        metric_name=config.metric.name,
+        metric_format=config.metric.format,
+        last_n=last_n,
+    )
+    text = payload["summary_text"]
+    return (
+        "Systematic learning update from recent experiments:\n"
+        f"{text}\n\n"
+        "Use this to choose the next experiment: prioritize families with keeps, "
+        "avoid repeated no-signal families, and only retry a failed family if you "
+        "can state a materially different hypothesis."
+    )
 
 
 def run_agent(
@@ -421,6 +473,12 @@ def run_agent(
             )],
         ),
     ]
+    initial_learning = _build_learning_message(config, tracker)
+    if initial_learning:
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=initial_learning)],
+        ))
 
     print(f"Agent started (model={model}, max_iterations={max_iterations})")
     print(f"Task: {config.name}")
@@ -476,6 +534,7 @@ def run_agent(
 
         # Execute each tool call and collect responses
         response_parts = []
+        saw_run_experiment = False
         for part in function_calls:
             fc = part.function_call
             tool_name = fc.name
@@ -495,6 +554,8 @@ def run_agent(
                 result = {"truncated": result_str[:10000] + "..."}
 
             print(f"  [Result] {json.dumps(result, default=str)[:300]}")
+            if tool_name == "run_experiment":
+                saw_run_experiment = True
 
             response_parts.append(
                 types.Part.from_function_response(
@@ -505,6 +566,15 @@ def run_agent(
 
         # Send tool results back
         contents.append(types.Content(role="user", parts=response_parts))
+
+        if saw_run_experiment:
+            learning_update = _build_learning_message(config, tracker)
+            if learning_update:
+                print("  [Learning] Updated guidance from recent outcomes")
+                contents.append(types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=learning_update)],
+                ))
 
         # Trim conversation if it gets too long (keep system + last 40 turns)
         if len(contents) > 60:

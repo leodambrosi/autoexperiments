@@ -5,6 +5,7 @@ Commands:
   autoexp init <task_dir>       — validate task.toml and generate program.md
   autoexp agent <task_dir>      — run autonomous experiment agent
   autoexp history <task_dir>    — show experiment history
+  autoexp lessons <task_dir>    — show systematic learning summary
   autoexp export <task_dir>     — export results to TSV
 """
 
@@ -14,6 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .learning import format_learning_summary, summarize_learning
 from .task_config import TaskConfig
 from .tracker import ExperimentTracker
 from .program_gen import write_program
@@ -117,6 +119,27 @@ def cmd_export(args: argparse.Namespace) -> None:
     print(f"Exported to {output}")
 
 
+def cmd_lessons(args: argparse.Namespace) -> None:
+    """Show systematic learning summary from recent experiments."""
+    task_dir = Path(args.task_dir).resolve()
+    config = TaskConfig.from_file(task_dir / "task.toml")
+    db_path = task_dir / ".autoexp" / "experiments.db"
+
+    if not db_path.exists():
+        print("No experiments recorded yet.", file=sys.stderr)
+        sys.exit(1)
+
+    tracker = ExperimentTracker(db_path)
+    records = tracker.history(last_n=args.last)
+    tracker.close()
+    if not records:
+        print("No experiments found.")
+        return
+
+    summary = summarize_learning(records, direction=config.metric.direction, last_n=args.last)
+    print(format_learning_summary(summary, metric_name=config.metric.name, metric_format=config.metric.format))
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="autoexp",
@@ -145,12 +168,18 @@ def main():
     p_export.add_argument("task_dir", help="Path to task directory")
     p_export.add_argument("-o", "--output", help="Output file path (default: <task_dir>/results.tsv)")
 
+    # lessons
+    p_lessons = sub.add_parser("lessons", help="Show systematic learning summary")
+    p_lessons.add_argument("task_dir", help="Path to task directory")
+    p_lessons.add_argument("-n", "--last", type=int, default=40, help="Number of recent experiments to analyze")
+
     args = parser.parse_args()
 
     commands = {
         "init": cmd_init,
         "agent": cmd_agent,
         "history": cmd_history,
+        "lessons": cmd_lessons,
         "export": cmd_export,
     }
     commands[args.command](args)
