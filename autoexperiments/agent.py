@@ -149,6 +149,21 @@ def _tool_run_experiment(task_dir: Path, config: TaskConfig, tracker: Experiment
     log_path = task_dir / "run.log"
     result = run_experiment(config, task_dir, log_path=log_path)
 
+    # Determine keep/discard by comparing to best
+    status = result.status  # "success", "crash", "timeout", "constraint_violated"
+    improved = False
+    if status == "success" and result.metric is not None:
+        best = tracker.best(direction=config.metric.direction)
+        if best is None:
+            # First successful run is always kept
+            status = "keep"
+            improved = True
+        elif config.metric.is_better(result.metric, best.metric_value):
+            status = "keep"
+            improved = True
+        else:
+            status = "discard"
+
     # Log to tracker
     try:
         commit_hash = current_commit(task_dir)
@@ -313,10 +328,18 @@ def run_agent(
         types.Content(
             role="user",
             parts=[types.Part.from_text(
-                text="Begin the autonomous experiment loop. "
-                "Start by reading the mutable files to understand the current state, "
-                "then view experiment history to see what's been tried. "
-                "Then propose and run your first experiment."
+                text="Begin the autonomous experiment loop.\n\n"
+                "Phase 1: Read ALL files (mutable + readonly) to deeply understand "
+                "the model architecture, data pipeline, training loop, and evaluation. "
+                "Then view experiment history to learn what's been tried and what worked.\n\n"
+                "Phase 2: Based on your understanding, propose STRUCTURAL changes — "
+                "not just hyperparameter tweaks. Think about different PEFT methods, "
+                "custom loss functions, optimizer changes, learning rate schedules, "
+                "training strategies. Write a hypothesis for each experiment explaining "
+                "WHY it should help.\n\n"
+                "Remember: if the run_experiment tool returns improved=false, you MUST "
+                "git reset --hard HEAD~1 to revert. If improved=true, keep the commit "
+                "and build on it."
             )],
         ),
     ]
@@ -361,12 +384,14 @@ def run_agent(
         function_calls = [p for p in model_content.parts if hasattr(p, "function_call") and p.function_call]
 
         if not function_calls:
-            # No tool calls — model might be done or thinking
-            # Nudge it to continue
+            # No tool calls — nudge toward action
             contents.append(types.Content(
                 role="user",
                 parts=[types.Part.from_text(
-                    text="Continue the experiment loop. Run another experiment with a different idea."
+                    text="Don't just think — act. Make a concrete code change and run an experiment. "
+                    "Try something STRUCTURAL: a different optimizer, a custom loss function, "
+                    "a new learning rate schedule, layer-wise LoRA config, or a different PEFT method. "
+                    "Write your hypothesis, edit the code, commit, and run."
                 )],
             ))
             continue
