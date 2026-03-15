@@ -1,8 +1,8 @@
 # autoexperiments
 
-A framework for autonomous AI-driven experimentation. Inspired by  Andrej Karpathy's [autoresearch](https://github.com/karpathy/autoresearch). A Gemini agent runs in a loop: modify code, run an experiment, measure the result, keep or discard, repeat.
+A framework for autonomous AI-driven experimentation. Inspired by Andrej Karpathy's [autoresearch](https://github.com/karpathy/autoresearch). A Gemini agent runs in a loop: modify code, run an experiment, measure the result, keep or discard, repeat.
 
-You define the task (what to run, what to optimize, what files the agent can touch). The framework handles execution, timeout enforcement, metric extraction, result tracking, and the agent loop.
+You define the task (what to run, what to optimize, what files the agent can touch). The framework handles execution, metric extraction, git commits, automatic reverts on failure, and result tracking.
 
 ## Quick start
 
@@ -13,22 +13,55 @@ pip install -e .
 # Set your Gemini API key
 export GEMINI_API_KEY=your-key-here
 
-# Define a task (see "Defining a task" below), then:
+# One-time: initialize task and generate agent prompt
+autoexp init tasks/llm-finetune
 
-# 1. Initialize — validates config, generates program.md
-autoexp init tasks/my-task
+# Edit program.md to add strategy, tips, failed experiments (optional but recommended)
 
-# 2. (Optional) Edit program.md to add strategy, tips, failed experiments
+# Run the agent (starts autonomous experiment loop)
+autoexp agent tasks/llm-finetune
 
-# 3. Run the agent
-autoexp agent tasks/my-task
+# Monitor a running experiment in another terminal
+tail -f tasks/llm-finetune/run.log
 
-# 4. View history
-autoexp history tasks/my-task
+# View experiment history
+autoexp history tasks/llm-finetune
 
-# 5. Export to TSV
-autoexp export tasks/my-task
+# Export results to TSV
+autoexp export tasks/llm-finetune
 ```
+
+### Google Colab
+
+```python
+# Install from git
+!pip install git+https://github.com/youruser/autoexperiments.git
+
+# Auth
+import os
+from google.colab import userdata
+os.environ["GEMINI_API_KEY"] = userdata.get("GEMINI_API_KEY")
+
+# Run via Python API
+from autoexperiments import Experiment
+
+exp = Experiment("tasks/llm-finetune")
+exp.run_agent(model="gemini-3.1-pro-preview", max_iterations=20)
+exp.history()
+```
+
+## How it works
+
+The agent loop is simple:
+
+1. Agent edits mutable files with `edit_file`
+2. Agent calls `run_experiment` with a description
+3. Framework auto-commits, runs the command, extracts the metric
+4. If improved → commit is kept, becomes the new baseline
+5. If not improved → commit is automatically reverted
+6. Agent reflects and tries the next idea
+
+The agent never needs to run git commands. Commits and reverts are handled by `run_experiment`.
 
 ## Defining a task
 
@@ -82,18 +115,9 @@ The agent gets five tools:
 |------|-------------|
 | `read_file` | Read files in the task directory |
 | `edit_file` | Find-and-replace in mutable files |
-| `run_experiment` | Run the task, extract metric, classify as keep/discard |
+| `run_experiment` | Auto-commit, run, extract metric, auto-revert on failure |
 | `view_history` | Query past experiment results |
-| `bash` | Shell commands (git commit, reset, diff, etc.) |
-
-On each experiment, the framework automatically:
-- Runs the command with a 2x time budget hard timeout
-- Extracts the metric via regex
-- Compares to the best kept result
-- Logs to SQLite as `keep` (new best) or `discard`
-- Returns `improved: true/false` to the agent
-
-The agent is expected to `git reset --hard HEAD~1` when `improved: false`.
+| `bash` | Shell commands for inspecting files and environment |
 
 ## Steering the agent
 
@@ -115,6 +139,9 @@ autoexp history tasks/my-task
 # Last 50
 autoexp history tasks/my-task -n 50
 
+# Monitor a running experiment
+tail -f tasks/my-task/run.log
+
 # Export all to TSV
 autoexp export tasks/my-task
 ```
@@ -127,10 +154,10 @@ Results are stored in `tasks/my-task/.autoexp/experiments.db` (SQLite).
 autoexperiments/
   cli.py           — CLI: init, agent, history, export
   agent.py         — Gemini agent loop with tool dispatch
-  runner.py        — run experiments, enforce timeouts, extract metrics, classify & log
+  runner.py        — run experiments, stream output, extract metrics, classify & log
   tracker.py       — SQLite experiment history
   task_config.py   — load and validate task.toml
-  git_ops.py       — git branch, commit, reset, snapshot
+  git_ops.py       — git commit, reset, snapshot (optional, works without git)
   program_gen.py   — generate program.md from task config
 ```
 
