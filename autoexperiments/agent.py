@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -263,12 +264,6 @@ def _tool_bash(task_dir: Path, args: dict) -> dict:
     if not command:
         return {"error": "Empty command"}
 
-    # Keep bash tool read-only and simple to prevent bypassing mutable file limits.
-    disallowed_fragments = ["\n", ";", "&&", "||", "|", ">", "<", "`", "$(", "sudo"]
-    for fragment in disallowed_fragments:
-        if fragment in command:
-            return {"error": f"Blocked command fragment: '{fragment}'"}
-
     try:
         tokens = shlex.split(command)
     except ValueError as e:
@@ -276,7 +271,21 @@ def _tool_bash(task_dir: Path, args: dict) -> dict:
     if not tokens:
         return {"error": "Empty command"}
 
-    allowed = {"ls", "pwd", "cat", "sed", "head", "tail", "grep", "rg", "find", "wc", "stat", "git"}
+    # Block shell operators that can chain commands, redirect IO, or use heredocs.
+    blocked_tokens = {";", "&&", "||", "|", ">", ">>", "<", "<<", "<<<"}
+    for tok in tokens:
+        if tok in blocked_tokens:
+            return {"error": f"Blocked shell token: '{tok}'"}
+
+    # Keep bash tool read-only and bounded to inspection commands.
+    blocked_commands = {
+        "rm", "mv", "cp", "touch", "mkdir", "rmdir", "chmod", "chown", "install", "tee",
+        "dd", "truncate", "ln", "git-apply", "patch",
+    }
+    if tokens[0] in blocked_commands:
+        return {"error": f"Command not allowed: {tokens[0]}"}
+
+    allowed = {"ls", "pwd", "cat", "sed", "head", "tail", "grep", "rg", "find", "wc", "stat", "git", "python", "python3"}
     if tokens[0] not in allowed:
         return {"error": f"Command not allowed: {tokens[0]}"}
 
@@ -284,6 +293,28 @@ def _tool_bash(task_dir: Path, args: dict) -> dict:
         allowed_git = {"status", "log", "diff", "show", "rev-parse", "branch"}
         if len(tokens) < 2 or tokens[1] not in allowed_git:
             return {"error": f"git subcommand not allowed: {' '.join(tokens[:2])}"}
+
+    if tokens[0] in {"python", "python3"}:
+        # Allow inline read-only inspection scripts, but block obvious file-mutating calls.
+        if len(tokens) < 3 or tokens[1] != "-c":
+            return {"error": "Only inline Python is allowed for bash tool: use `python3 -c \"...\"`"}
+        script = tokens[2]
+        blocked_patterns = [
+            r"\.write_text\s*\(",
+            r"\.write_bytes\s*\(",
+            r"\.mkdir\s*\(",
+            r"os\.makedirs\s*\(",
+            r"os\.remove\s*\(",
+            r"os\.unlink\s*\(",
+            r"shutil\.rmtree\s*\(",
+            r"\.rename\s*\(",
+            r"\.replace\s*\(",
+            r"\.touch\s*\(",
+            r"open\s*\([^)]*,\s*['\"][wax+]['\"]",
+        ]
+        for pattern in blocked_patterns:
+            if re.search(pattern, script):
+                return {"error": "Inline Python appears to modify files; use edit_file for code changes."}
 
     try:
         proc = subprocess.run(

@@ -47,3 +47,13 @@ def test_bash_allows_read_only_command(tmp_path: Path) -> None:
     out = _tool_bash(tmp_path, {"command": "pwd"})
 
     assert out["returncode"] == 0
+
+
+def test_bash_allows_python_inline_read_only_inspection(tmp_path: Path) -> None:
+    out = _tool_bash(
+        tmp_path,
+        {"command": "python3 -c \"import re; print(bool(re.match('a', 'a')))\""},
+    )
+
+    assert out["returncode"] == 0
+    assert "True" in out["stdout"]

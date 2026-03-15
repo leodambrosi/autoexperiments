@@ -13,17 +13,17 @@ pip install -e ".[llm-finetune]"
 # Set your Gemini API key
 export GEMINI_API_KEY=your-key-here
 
-# Setup task (extracts files + prepares data automatically)
-python -c "from autoexperiments import setup_task; setup_task('llm-finetune')"
+# Prepare data for the bundled task
+python tasks/llm-finetune/prepare_data.py
 
 # Run the agent
-autoexp agent llm-finetune
+autoexp agent tasks/llm-finetune
 
 # Monitor a running experiment in another terminal
-tail -f llm-finetune/run.log
+tail -f tasks/llm-finetune/run.log
 
 # View experiment history
-autoexp history llm-finetune
+autoexp history tasks/llm-finetune
 ```
 
 ### Quick start with uv (Python 3.13)
@@ -43,11 +43,11 @@ uv sync --extra llm-finetune
 # Set API key
 export GEMINI_API_KEY=your-key-here
 
-# Setup task (extracts files + prepares data automatically)
-uv run python -c "from autoexperiments import setup_task; setup_task('llm-finetune')"
+# Prepare data for the bundled task
+uv run python tasks/llm-finetune/prepare_data.py
 
 # Run the agent
-uv run autoexp agent llm-finetune -n 20
+uv run autoexp agent tasks/llm-finetune -n 20
 ```
 
 Re-activate the environment later:
