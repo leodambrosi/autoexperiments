@@ -210,7 +210,6 @@ __marimo__/
 run.log
 .autoexp/
 results.tsv
-program.md
 CLAUDE.md
 AGENTS.md
 
