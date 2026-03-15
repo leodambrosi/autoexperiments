@@ -17,8 +17,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-from .git_ops import current_commit, snapshot_files
-from .runner import run_experiment
+from .runner import run_and_record
 from .task_config import TaskConfig
 from .tracker import ExperimentTracker
 
@@ -153,40 +152,11 @@ def _tool_edit_file(task_dir: Path, args: dict) -> dict:
 
 
 def _tool_run_experiment(task_dir: Path, config: TaskConfig, tracker: ExperimentTracker, args: dict) -> dict:
-    log_path = task_dir / "run.log"
-    result = run_experiment(config, task_dir, log_path=log_path)
-
-    # Determine keep/discard by comparing to best
-    status = result.status  # "success", "crash", "timeout", "constraint_violated"
-    improved = False
-    if status == "success" and result.metric is not None:
-        best = tracker.best(direction=config.metric.direction)
-        if best is None:
-            # First successful run is always kept
-            status = "keep"
-            improved = True
-        elif config.metric.is_better(result.metric, best.metric_value):
-            status = "keep"
-            improved = True
-        else:
-            status = "discard"
-
-    # Log to tracker
-    try:
-        commit_hash = current_commit(task_dir)
-        snapshot = snapshot_files(task_dir, config.mutable_files)
-        tracker.log(
-            commit=commit_hash,
-            metric_name=config.metric.name,
-            metric_value=result.metric if result.metric is not None else 0.0,
-            status=status,
-            description=args.get("description", ""),
-            wall_seconds=result.wall_seconds,
-            constraints={k: v for k, v in result.constraints.items()},
-            config_snapshot=snapshot,
-        )
-    except Exception as e:
-        print(f"  [Warning] Failed to log to tracker: {e}")
+    result, status, improved = run_and_record(
+        config, task_dir, tracker,
+        description=args.get("description", ""),
+        log_path=task_dir / "run.log",
+    )
 
     output = {
         "status": status,

@@ -16,10 +16,9 @@ import sys
 from pathlib import Path
 
 from .task_config import TaskConfig
-from .runner import run_experiment
+from .runner import run_and_record
 from .tracker import ExperimentTracker
 from .program_gen import write_program
-from .git_ops import current_commit, snapshot_files
 from .agent import run_agent
 
 
@@ -55,19 +54,26 @@ def cmd_run(args: argparse.Namespace) -> None:
     task_dir = Path(args.task_dir).resolve()
     config = TaskConfig.from_file(task_dir / "task.toml")
 
-    log_path = task_dir / "run.log"
     print(f"Running: {config.run_command}")
     print(f"Time budget: {config.time_budget}s (hard timeout: {config.time_budget * 2}s)")
     print()
 
-    result = run_experiment(config, task_dir, log_path=log_path)
+    tracker = ExperimentTracker(task_dir / ".autoexp" / "experiments.db")
+    result, status, improved = run_and_record(
+        config, task_dir, tracker,
+        description=args.description or "",
+        log_path=task_dir / "run.log",
+    )
+    tracker.close()
 
-    print(f"Status: {result.status}")
+    print(f"Status: {status}")
     print(f"Wall time: {result.wall_seconds:.1f}s")
 
     if result.metric is not None:
         fmt = config.metric.format
         print(f"{config.metric.name}: {result.metric:{fmt}}")
+        if improved:
+            print("  ✓ New best!")
     else:
         print(f"{config.metric.name}: (not found in output)")
 
@@ -80,26 +86,6 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     if result.crashed:
         print(f"\n--- Last 20 lines ---\n{_tail(result.tail, 20)}")
-
-    # Log to tracker if in a git repo
-    try:
-        commit_hash = current_commit(task_dir)
-        snapshot = snapshot_files(task_dir, config.mutable_files)
-        tracker = ExperimentTracker(task_dir / ".autoexp" / "experiments.db")
-        tracker.log(
-            commit=commit_hash,
-            metric_name=config.metric.name,
-            metric_value=result.metric if result.metric is not None else 0.0,
-            status=result.status,
-            description=args.description or "",
-            wall_seconds=result.wall_seconds,
-            constraints={k: v for k, v in result.constraints.items()},
-            config_snapshot=snapshot,
-        )
-        tracker.close()
-        print(f"\nLogged to .autoexp/experiments.db")
-    except Exception:
-        pass  # not in a git repo or other issue, skip tracking
 
 
 def cmd_history(args: argparse.Namespace) -> None:

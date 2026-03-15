@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .git_ops import current_commit, snapshot_files
 from .task_config import TaskConfig
 
 
@@ -128,6 +129,54 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
         stderr=stderr,
         tail=_tail(combined, 50),
     )
+
+
+def run_and_record(
+    config: TaskConfig,
+    task_dir: str | Path,
+    tracker,
+    description: str = "",
+    log_path: str | Path | None = None,
+) -> tuple[ExperimentResult, str, bool]:
+    """
+    Run an experiment, classify as keep/discard, and log to tracker.
+
+    Returns (result, status, improved).
+    """
+    from .tracker import ExperimentTracker
+
+    task_dir = Path(task_dir)
+    result = run_experiment(config, task_dir, log_path=log_path)
+
+    # Classify
+    status = result.status
+    improved = False
+    if status == "success" and result.metric is not None:
+        best = tracker.best(direction=config.metric.direction)
+        if best is None:
+            status = "keep"
+            improved = True
+        elif config.metric.is_better(result.metric, best.metric_value):
+            status = "keep"
+            improved = True
+        else:
+            status = "discard"
+
+    # Log
+    commit_hash = current_commit(task_dir)
+    snapshot = snapshot_files(task_dir, config.mutable_files)
+    tracker.log(
+        commit=commit_hash,
+        metric_name=config.metric.name,
+        metric_value=result.metric if result.metric is not None else 0.0,
+        status=status,
+        description=description,
+        wall_seconds=result.wall_seconds,
+        constraints={k: v for k, v in result.constraints.items()},
+        config_snapshot=snapshot,
+    )
+
+    return result, status, improved
 
 
 def _tail(text: str, n: int) -> str:
