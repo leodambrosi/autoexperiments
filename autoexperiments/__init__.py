@@ -14,7 +14,7 @@ Python API for use in notebooks (Colab, Jupyter) and scripts:
 from __future__ import annotations
 
 import importlib.resources
-import shutil
+import subprocess
 from pathlib import Path
 
 from .task_config import TaskConfig
@@ -56,8 +56,26 @@ def setup_task(task_name: str, dest: str | Path | None = None) -> Path:
         else:
             print(f"  Skipped {target} (already exists)")
 
+    # Init git repo so the agent can commit/revert experiments
+    from .git_ops import has_git
+    if not has_git(dest):
+        print("\nInitializing git repo...")
+        subprocess.run(["git", "init"], cwd=dest, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=dest, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "initial task setup"], cwd=dest, capture_output=True)
+
+    # Run setup command (e.g. data preparation) if defined in task.toml
+    config = TaskConfig.from_file(dest / "task.toml")
+    if config.setup_command:
+        print(f"\nRunning setup: {config.setup_command}")
+        result = subprocess.run(
+            config.setup_command, shell=True, cwd=dest,
+        )
+        if result.returncode != 0:
+            print(f"Warning: setup command exited with code {result.returncode}")
+
     print(f"\nTask ready at {dest.resolve()}")
-    print(f"Next: run prepare_data.py, then Experiment({str(dest)!r}).run_agent()")
+    print(f"Next: Experiment({str(dest)!r}).run_agent()")
     return dest
 
 

@@ -6,6 +6,16 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["google-genai"]
 
+[project.optional-dependencies]
+llm-finetune = [
+    "torch",
+    "transformers>=4.51.0",
+    "datasets",
+    "peft",
+    "accelerate",
+    "python-dotenv",
+]
+
 [project.scripts]
 autoexp = "autoexperiments.cli:main"
 

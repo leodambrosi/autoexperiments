@@ -1,8 +1,8 @@
 [task]
 name = "llm-finetune"
-run_command = "PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 ../../.venv313/bin/python3 finetune.py"
+run_command = "PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 python3 finetune.py"
 time_budget = 300
-setup_command = "../../.venv313/bin/python3 prepare_data.py"
+setup_command = "python3 prepare_data.py"
 mutable_files = ["finetune.py"]
 readonly_files = ["prepare_data.py", "evaluate.py"]
 tips = """

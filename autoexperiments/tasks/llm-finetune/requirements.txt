@@ -1,6 +1,0 @@
-torch
-transformers>=4.51.0
-datasets
-peft
-accelerate
-python-dotenv
