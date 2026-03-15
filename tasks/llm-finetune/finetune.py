@@ -44,7 +44,7 @@ MAX_GRAD_NORM = 1.0
 # LoRA config (edit these!)
 LORA_R = 32
 LORA_ALPHA = 64
-LORA_DROPOUT = 0.05
+LORA_DROPOUT = 0.1
 LORA_TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
 # Eval
