@@ -44,11 +44,12 @@ def _extract_value(pattern: str, text: str) -> float | None:
 def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Path | None = None) -> ExperimentResult:
     """
     Run the task's command, enforce timeout, extract metric and constraints.
+    Streams output to log_path in real time if provided.
 
     Args:
         config: Task configuration.
         task_dir: Working directory for the command.
-        log_path: If provided, write raw stdout+stderr to this file.
+        log_path: If provided, stream stdout+stderr to this file in real time.
 
     Returns:
         ExperimentResult with extracted metric and status.
@@ -56,60 +57,80 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
     task_dir = Path(task_dir)
     timeout = config.time_budget * 2  # hard kill at 2x budget
 
+    log_file = open(log_path, "w") if log_path else None
+    collected: list[str] = []
+
     t0 = time.monotonic()
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             config.run_command,
             shell=True,
             cwd=task_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout,
         )
+        while True:
+            line = proc.stdout.readline()
+            if line:
+                collected.append(line)
+                if log_file:
+                    log_file.write(line)
+                    log_file.flush()
+            elif proc.poll() is not None:
+                break
+
+            if time.monotonic() - t0 > timeout:
+                proc.kill()
+                proc.wait()
+                wall = time.monotonic() - t0
+                output = "".join(collected)
+                if log_file:
+                    log_file.close()
+                return ExperimentResult(
+                    status="timeout",
+                    wall_seconds=wall,
+                    stdout=output,
+                    stderr="",
+                    tail=_tail(output, 50),
+                )
+
         wall = time.monotonic() - t0
-        stdout = proc.stdout
-        stderr = proc.stderr
         returncode = proc.returncode
-    except subprocess.TimeoutExpired as e:
+        output = "".join(collected)
+
+    except Exception as e:
         wall = time.monotonic() - t0
-        stdout = e.stdout or ""
-        stderr = e.stderr or ""
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode(errors="replace")
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode(errors="replace")
-        result = ExperimentResult(
-            status="timeout",
+        output = "".join(collected)
+        if log_file:
+            log_file.close()
+        return ExperimentResult(
+            status="crash",
             wall_seconds=wall,
-            stdout=stdout,
-            stderr=stderr,
-            tail=_tail(stdout + "\n" + stderr, 50),
+            stdout=output,
+            stderr=str(e),
+            tail=_tail(output + "\n" + str(e), 50),
         )
-        if log_path:
-            Path(log_path).write_text(stdout + "\n" + stderr)
-        return result
 
-    combined = stdout + "\n" + stderr
-
-    if log_path:
-        Path(log_path).write_text(combined)
+    if log_file:
+        log_file.close()
 
     if returncode != 0:
         return ExperimentResult(
             status="crash",
             wall_seconds=wall,
-            stdout=stdout,
-            stderr=stderr,
-            tail=_tail(combined, 50),
+            stdout=output,
+            stderr="",
+            tail=_tail(output, 50),
         )
 
     # Extract metric
-    metric = _extract_value(config.metric.extract_pattern, combined)
+    metric = _extract_value(config.metric.extract_pattern, output)
 
     # Extract constraints
     constraint_values = {}
     for c in config.constraints:
-        val = _extract_value(c.extract_pattern, combined)
+        val = _extract_value(c.extract_pattern, output)
         if val is not None:
             constraint_values[c.name] = val
 
@@ -125,9 +146,9 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
         constraints=constraint_values,
         status=status,
         wall_seconds=wall,
-        stdout=stdout,
-        stderr=stderr,
-        tail=_tail(combined, 50),
+        stdout=output,
+        stderr="",
+        tail=_tail(output, 50),
     )
 
 

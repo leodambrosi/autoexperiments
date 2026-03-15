@@ -17,6 +17,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+from .git_ops import has_git, current_commit, snapshot_files
 from .runner import run_and_record
 from .task_config import TaskConfig
 from .tracker import ExperimentTracker
@@ -65,13 +66,13 @@ TOOL_DECLARATIONS = [
     ),
     types.FunctionDeclaration(
         name="run_experiment",
-        description="Run the experiment command and return the results including metric, status, and constraint values.",
+        description="Commit pending changes, run the experiment, and return results. If the experiment does NOT improve the metric, the commit is automatically reverted. You do NOT need to run git commit or git reset yourself.",
         parameters_json_schema={
             "type": "object",
             "properties": {
                 "description": {
                     "type": "string",
-                    "description": "Short description of what this experiment tests",
+                    "description": "Short description of what this experiment tests (used as commit message)",
                 },
             },
             "required": ["description"],
@@ -152,17 +153,46 @@ def _tool_edit_file(task_dir: Path, args: dict) -> dict:
 
 
 def _tool_run_experiment(task_dir: Path, config: TaskConfig, tracker: ExperimentTracker, args: dict) -> dict:
+    description = args.get("description", "")
+    use_git = has_git(task_dir)
+
+    # Auto-commit pending changes before running
+    if use_git:
+        try:
+            subprocess.run(
+                ["git", "add"] + config.mutable_files,
+                cwd=task_dir, capture_output=True, text=True,
+            )
+            commit_result = subprocess.run(
+                ["git", "commit", "-m", description or "experiment"],
+                cwd=task_dir, capture_output=True, text=True,
+            )
+            committed = commit_result.returncode == 0
+        except Exception:
+            committed = False
+    else:
+        committed = False
+
     result, status, improved = run_and_record(
         config, task_dir, tracker,
-        description=args.get("description", ""),
+        description=description,
         log_path=task_dir / "run.log",
     )
+
+    # Auto-revert if not improved
+    if not improved and committed and use_git:
+        subprocess.run(
+            ["git", "reset", "--hard", "HEAD~1"],
+            cwd=task_dir, capture_output=True, text=True,
+        )
 
     output = {
         "status": status,
         "wall_seconds": round(result.wall_seconds, 1),
         "improved": improved,
     }
+    if not improved:
+        output["reverted"] = committed
     if result.metric is not None:
         output["metric"] = result.metric
         output["metric_name"] = config.metric.name
@@ -311,9 +341,12 @@ def run_agent(
                 "custom loss functions, optimizer changes, learning rate schedules, "
                 "training strategies. Write a hypothesis for each experiment explaining "
                 "WHY it should help.\n\n"
-                "Remember: if the run_experiment tool returns improved=false, you MUST "
-                "git reset --hard HEAD~1 to revert. If improved=true, keep the commit "
-                "and build on it."
+                "IMPORTANT: The code at HEAD is already the best known config. "
+                "Do NOT create branches or run git commands. Just:\n"
+                "1. Edit the file with edit_file\n"
+                "2. Call run_experiment (it auto-commits and auto-reverts on failure)\n"
+                "3. If improved=true, the commit is kept. If improved=false, "
+                "it is automatically reverted to the last good state."
             )],
         ),
     ]

@@ -34,17 +34,17 @@ DATA_DIR = CACHE_DIR / "data"
 TIME_BUDGET = 300  # 5 minutes of training time
 
 # Hyperparameters (edit these!)
-LEARNING_RATE = 1.5e-4
+LEARNING_RATE = 1e-4
 BATCH_SIZE = 1 if (torch.backends.mps.is_available() and not torch.cuda.is_available()) else 4
 GRADIENT_ACCUMULATION_STEPS = 4
-WARMUP_RATIO = 0.01
-WEIGHT_DECAY = 0.05
+WARMUP_RATIO = 0.06
+WEIGHT_DECAY = 0.01
 MAX_GRAD_NORM = 1.0
 
 # LoRA config (edit these!)
 LORA_R = 32
 LORA_ALPHA = 64
-LORA_DROPOUT = 0.1
+LORA_DROPOUT = 0.05
 LORA_TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
 # Eval
@@ -98,7 +98,6 @@ lora_config = LoraConfig(
     lora_alpha=LORA_ALPHA,
     lora_dropout=LORA_DROPOUT,
     target_modules=LORA_TARGET_MODULES,
-    use_dora=True,
 )
 model = get_peft_model(model, lora_config)
 model.gradient_checkpointing_enable()

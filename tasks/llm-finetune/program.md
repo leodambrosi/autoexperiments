@@ -53,10 +53,9 @@ Achieved with:
 
 ## Setup
 
-1. Create branch `autoexp/<tag>` (use today's date, e.g. `mar15`).
-2. Read ALL in-scope files for full context: `finetune.py`, `evaluate.py`, `prepare_data.py`.
-3. View experiment history to understand what's been tried.
-4. Begin experimentation.
+1. Read ALL in-scope files for full context: `finetune.py`, `evaluate.py`, `prepare_data.py`.
+2. View experiment history to understand what's been tried.
+3. Begin experimentation. The code at HEAD is already the best known config.
 
 ## The experiment loop
 
@@ -64,13 +63,14 @@ LOOP FOREVER:
 
 1. **Hypothesize**: Before each experiment, reason about WHY a change should help.
    Think about training dynamics, not just numbers. Write your hypothesis.
-2. Edit `finetune.py` to implement your idea.
-3. `git commit -am "description"` the changes.
-4. Run via `run_experiment` tool with a description.
-5. Tool returns `improved: true/false` and `best_so_far`.
-6. If **improved** → keep the commit. It's the new baseline. Build on it.
-7. If **not improved** → `git reset --hard HEAD~1` to revert.
-8. **Reflect**: Why did it work or fail? Use that insight for the next idea.
+2. Edit `finetune.py` with `edit_file` to implement your idea.
+3. Call `run_experiment` with a description.
+4. The tool auto-commits, runs, and returns `improved: true/false` and `best_so_far`.
+5. If **improved** → commit is kept. It's the new baseline. Build on it.
+6. If **not improved** → commit is automatically reverted. Code is back to the last good state.
+7. **Reflect**: Why did it work or fail? Use that insight for the next idea.
+
+**Do NOT run git commands.** Commits and reverts are handled automatically by `run_experiment`.
 
 ## Experiment strategy
 
@@ -134,6 +134,11 @@ Do NOT repeat these — they all scored worse than 0.666:
 | weight_decay=0.0 | 0.697 | Weight decay helps |
 | Cosine min lr=0.0 (floor) | 0.713 | Floor of 0.1 is better |
 | LoRA r=16, alpha=32 | 0.707 | Less capacity hurts |
+| DoRA (use_dora=True) | 0.732 | Worse convergence |
+| RSLoRA (use_rslora=True) | 0.703 | Worse than baseline |
+| OneCycleLR scheduler | 0.741 | Aggressive decay hurt |
+| Custom loss: 2x weight on thinking tokens | 0.734 | Distorted loss landscape |
+| Label smoothing 0.05 | 0.753 | Too much regularization |
 
 ## NEVER STOP
 
