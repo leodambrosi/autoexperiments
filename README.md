@@ -26,6 +26,42 @@ tail -f llm-finetune/run.log
 autoexp history llm-finetune
 ```
 
+### Quick start with uv (Python 3.13)
+
+```bash
+# From the repository root (directory containing pyproject.toml)
+
+# Install Python 3.13 for uv (one-time)
+uv python install 3.13
+
+# Create/recreate venv with Python 3.13
+uv venv --python 3.13 .venv
+
+# Install project + llm-finetune extras
+uv sync --extra llm-finetune
+
+# Set API key
+export GEMINI_API_KEY=your-key-here
+
+# Setup task (extracts files + prepares data automatically)
+uv run python -c "from autoexperiments import setup_task; setup_task('llm-finetune')"
+
+# Run the agent
+uv run autoexp agent llm-finetune -n 20
+```
+
+Re-activate the environment later:
+
+```bash
+source .venv/bin/activate
+```
+
+Or skip activation and run everything via `uv run`.
+
+### PyCharm + uv
+
+Use the same commands in the PyCharm terminal. Then set the project interpreter to `.venv/bin/python` so run configurations and editor tooling use the uv-managed environment.
+
 ### Google Colab
 
 ```python
