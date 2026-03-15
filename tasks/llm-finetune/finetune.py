@@ -34,7 +34,7 @@ DATA_DIR = CACHE_DIR / "data"
 TIME_BUDGET = 300  # 5 minutes of training time
 
 # Hyperparameters (edit these!)
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1.5e-4
 BATCH_SIZE = 1 if (torch.backends.mps.is_available() and not torch.cuda.is_available()) else 4
 GRADIENT_ACCUMULATION_STEPS = 4
 WARMUP_RATIO = 0.06
