@@ -8,3 +8,6 @@ dependencies = ["google-genai"]
 
 [project.scripts]
 autoexp = "autoexperiments.cli:main"
+
+[tool.setuptools.package-data]
+"autoexperiments.tasks" = ["**/*.py", "**/*.toml", "**/*.md", "**/*.txt"]

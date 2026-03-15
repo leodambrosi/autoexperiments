@@ -1,0 +1,30 @@
+[task]
+name = "llm-finetune"
+run_command = "PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 ../../.venv313/bin/python3 finetune.py"
+time_budget = 300
+setup_command = "../../.venv313/bin/python3 prepare_data.py"
+mutable_files = ["finetune.py"]
+readonly_files = ["prepare_data.py", "evaluate.py"]
+tips = """
+- Base model is Qwen3.5-2B. Architecture: 36 layers, hidden_size=1536, 12 attention heads + 2 KV heads (GQA).
+- Training data is a 75/25 blend of thinking (Magpie-Reasoning-V2 + R1-Distill-SFT) and non-thinking (UltraChat) examples.
+- Labels are pre-masked by prepare_data.py: only assistant tokens contribute to loss. System and user tokens are -100.
+- Thinking traces use Qwen's format: <think>\\n...\\n</think>\\n\\n{response}. Non-thinking uses empty <think>\\n\\n</think>\\n\\n.
+- Qwen linear projection names: q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj.
+- Baseline targets attention projections only. Try adding gate_proj/up_proj/down_proj for MLP LoRA.
+- Everything in finetune.py is editable: LoRA rank/alpha/target modules, learning rate, scheduler, batch size, gradient accumulation, optimizer, etc.
+- More radical changes welcome: different PEFT methods (IA3, prompt tuning), custom loss weighting (e.g. weight thinking tokens differently), full fine-tuning of select layers, gradient checkpointing.
+- Simpler is better at equal performance. Removing complexity for same results is a win.
+- Supports CUDA, MPS (Apple Silicon), and CPU. On MPS: model runs in float32, no bfloat16. Reduce batch size if memory is tight.
+"""
+
+[metric]
+name = "eval_loss"
+direction = "minimize"
+extract_pattern = "^eval_loss:\\s+(\\S+)"
+format = ".6f"
+
+[constraints.peak_vram_mb]
+extract_pattern = "^peak_vram_mb:\\s+(\\S+)"
+warn = 16000
+hard = 24000

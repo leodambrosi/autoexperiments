@@ -3,20 +3,62 @@ autoexperiments — autonomous AI-driven experimentation framework.
 
 Python API for use in notebooks (Colab, Jupyter) and scripts:
 
-    from autoexperiments import Experiment
+    from autoexperiments import setup_task, Experiment
 
-    exp = Experiment("tasks/llm-finetune")
-    exp.run_agent(model="gemini-3.1-pro-preview", max_iterations=20)
+    setup_task("llm-finetune")           # extracts task files to ./llm-finetune/
+    exp = Experiment("llm-finetune")
+    exp.run_agent(max_iterations=20)
     exp.history()
 """
 
 from __future__ import annotations
 
+import importlib.resources
+import shutil
 from pathlib import Path
 
 from .task_config import TaskConfig
 from .tracker import ExperimentTracker, ExperimentRecord
 from .runner import ExperimentResult, run_experiment
+
+
+def setup_task(task_name: str, dest: str | Path | None = None) -> Path:
+    """
+    Extract a bundled task to a local directory.
+
+    Args:
+        task_name: Name of the bundled task (e.g. "llm-finetune").
+        dest: Destination directory. Defaults to ./<task_name>/ in the current directory.
+
+    Returns:
+        Path to the extracted task directory.
+    """
+    dest = Path(dest) if dest else Path(task_name)
+
+    # Find the bundled task inside the package
+    tasks_pkg = importlib.resources.files("autoexperiments.tasks") / task_name
+    if not tasks_pkg.is_dir():
+        available = [
+            p.name for p in importlib.resources.files("autoexperiments.tasks").iterdir()
+            if p.is_dir() and p.name != "__pycache__"
+        ]
+        raise ValueError(f"Unknown task {task_name!r}. Available: {available}")
+
+    dest.mkdir(parents=True, exist_ok=True)
+
+    for item in tasks_pkg.iterdir():
+        if item.name.startswith(("__", ".")):
+            continue
+        target = dest / item.name
+        if not target.exists():
+            target.write_text(item.read_text())
+            print(f"  Created {target}")
+        else:
+            print(f"  Skipped {target} (already exists)")
+
+    print(f"\nTask ready at {dest.resolve()}")
+    print(f"Next: run prepare_data.py, then Experiment({str(dest)!r}).run_agent()")
+    return dest
 
 
 class Experiment:

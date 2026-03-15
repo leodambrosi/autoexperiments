@@ -13,40 +13,47 @@ pip install -e .
 # Set your Gemini API key
 export GEMINI_API_KEY=your-key-here
 
-# One-time: initialize task and generate agent prompt
-autoexp init tasks/llm-finetune
+# Extract a bundled task (e.g. llm-finetune)
+python -c "from autoexperiments import setup_task; setup_task('llm-finetune')"
 
-# Edit program.md to add strategy, tips, failed experiments (optional but recommended)
+# One-time: install task deps and prepare data
+pip install -r llm-finetune/requirements.txt
+python llm-finetune/prepare_data.py
 
 # Run the agent (starts autonomous experiment loop)
-autoexp agent tasks/llm-finetune
+autoexp agent llm-finetune
 
 # Monitor a running experiment in another terminal
-tail -f tasks/llm-finetune/run.log
+tail -f llm-finetune/run.log
 
 # View experiment history
-autoexp history tasks/llm-finetune
-
-# Export results to TSV
-autoexp export tasks/llm-finetune
+autoexp history llm-finetune
 ```
 
 ### Google Colab
 
 ```python
-# Install from git
+# Cell 1: Install
 !pip install git+https://github.com/youruser/autoexperiments.git
 
-# Auth
+# Cell 2: Setup task (extracts bundled files to ./llm-finetune/)
+from autoexperiments import setup_task
+setup_task("llm-finetune")
+
+# Cell 3: Install task dependencies and prepare data
+!pip install -r llm-finetune/requirements.txt
+!python llm-finetune/prepare_data.py
+
+# Cell 4: Auth and run
 import os
 from google.colab import userdata
 os.environ["GEMINI_API_KEY"] = userdata.get("GEMINI_API_KEY")
 
-# Run via Python API
 from autoexperiments import Experiment
+exp = Experiment("llm-finetune")
+exp.run_agent(max_iterations=20)
 
-exp = Experiment("tasks/llm-finetune")
-exp.run_agent(model="gemini-3.1-pro-preview", max_iterations=20)
+# Cell 5: Check results
 exp.history()
 ```
 
