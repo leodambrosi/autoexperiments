@@ -53,7 +53,7 @@ class Experiment:
         self.tracker.log(
             commit=commit_hash,
             metric_name=self.config.metric.name,
-            metric_value=result.metric if result.metric is not None else 0.0,
+            metric_value=result.metric,
             status=status,
             description=description,
             wall_seconds=result.wall_seconds,
@@ -96,7 +96,7 @@ class Experiment:
         print(f"{'#':>4}  {'commit':7}  {'metric':>12}  {'status':>10}  {'time':>7}  description")
         print("-" * 70)
         for r in records:
-            metric_str = f"{r.metric_value:{fmt}}" if r.status != "crash" else "---"
+            metric_str = f"{r.metric_value:{fmt}}" if r.metric_value is not None else "---"
             print(f"{r.id:4}  {r.commit:7}  {metric_str:>12}  {r.status:>10}  {r.wall_seconds:6.1f}s  {r.description}")
 
         best = self.tracker.best(direction=self.config.metric.direction)
