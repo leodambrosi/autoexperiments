@@ -18,7 +18,6 @@ from google import genai
 from google.genai import types
 
 from .git_ops import current_commit, snapshot_files
-from .program_gen import generate_program
 from .runner import run_experiment
 from .task_config import TaskConfig
 from .tracker import ExperimentTracker
@@ -312,8 +311,14 @@ def run_agent(
         raise RuntimeError("No API key. Set GEMINI_API_KEY env var, pass --api-key, or add to .env")
     client = genai.Client(api_key=resolved_key)
 
-    # Build system prompt from program.md
-    system_prompt = generate_program(config)
+    # Read system prompt from program.md (source of truth, human-editable)
+    program_path = task_dir / "program.md"
+    if not program_path.exists():
+        from .program_gen import write_program
+        write_program(config, program_path)
+        print(f"Generated initial {program_path}")
+    system_prompt = program_path.read_text()
+    print(f"Loaded program.md ({len(system_prompt)} chars)")
 
     # Tool config — manual function calling (we handle execution)
     tools = types.Tool(function_declarations=TOOL_DECLARATIONS)
