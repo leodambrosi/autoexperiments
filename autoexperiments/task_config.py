@@ -72,6 +72,8 @@ class TaskConfig:
             extract_pattern=metric_raw.get("extract_pattern", r"^metric:\s+(\S+)"),
             format=metric_raw.get("format", ".6f"),
         )
+        if metric.direction not in {"minimize", "maximize"}:
+            raise ValueError(f"metric.direction must be 'minimize' or 'maximize', got: {metric.direction!r}")
 
         constraints = []
         for name, craw in raw.get("constraints", {}).items():
@@ -82,12 +84,23 @@ class TaskConfig:
                 hard=craw.get("hard"),
             ))
 
+        mutable_files = task.get("mutable_files", [])
+        readonly_files = task.get("readonly_files", [])
+        overlap = set(mutable_files) & set(readonly_files)
+        if overlap:
+            shared = ", ".join(sorted(overlap))
+            raise ValueError(f"Files cannot be both mutable and readonly: {shared}")
+
+        time_budget = int(task.get("time_budget", 300))
+        if time_budget <= 0:
+            raise ValueError(f"task.time_budget must be > 0, got: {time_budget}")
+
         return cls(
             name=task["name"],
             run_command=task["run_command"],
-            time_budget=task.get("time_budget", 300),
-            mutable_files=task.get("mutable_files", []),
-            readonly_files=task.get("readonly_files", []),
+            time_budget=time_budget,
+            mutable_files=mutable_files,
+            readonly_files=readonly_files,
             setup_command=task.get("setup_command"),
             metric=metric,
             constraints=constraints,

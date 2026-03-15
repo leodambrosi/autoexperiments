@@ -60,9 +60,19 @@ def setup_task(task_name: str, dest: str | Path | None = None) -> Path:
     from .git_ops import has_git
     if not has_git(dest):
         print("\nInitializing git repo...")
-        subprocess.run(["git", "init"], cwd=dest, capture_output=True)
-        subprocess.run(["git", "add", "."], cwd=dest, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "initial task setup"], cwd=dest, capture_output=True)
+        init_result = subprocess.run(["git", "init"], cwd=dest, capture_output=True, text=True)
+        add_result = subprocess.run(["git", "add", "."], cwd=dest, capture_output=True, text=True)
+        commit_result = subprocess.run(
+            ["git", "commit", "-m", "initial task setup"],
+            cwd=dest,
+            capture_output=True,
+            text=True,
+        )
+        if init_result.returncode != 0 or add_result.returncode != 0 or commit_result.returncode != 0:
+            print(
+                "Warning: git initialization was incomplete. "
+                "Auto-revert behavior may be unavailable until you create an initial commit."
+            )
 
     # Run setup command (e.g. data preparation) if defined in task.toml
     config = TaskConfig.from_file(dest / "task.toml")

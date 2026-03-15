@@ -23,12 +23,11 @@ the training dynamics, the data, and the optimization landscape.
 
 ## Setup
 
-1. Create branch `autoexp/<tag>` (use today's date, e.g. `mar15`).
-2. Read ALL in-scope files for full context:
+1. Read ALL in-scope files for full context:
 {file_list}
-3. Run setup if needed: {setup_instruction}
-4. View experiment history to understand what's already been tried.
-5. Begin experimentation.
+2. Run setup if needed: {setup_instruction}
+3. View experiment history to understand what's already been tried.
+4. Begin experimentation.
 
 ## Task
 
@@ -59,12 +58,11 @@ LOOP FOREVER:
    change improve the metric? What mechanism are you exploiting? If you can't
    articulate a reason, pick a different idea.
 2. Edit the mutable file(s) to implement your idea.
-3. `git commit` the changes.
-4. Run the experiment via `run_experiment` tool.
-5. The tool returns `improved: true/false` and `best_so_far`.
-6. If improved, KEEP the commit — it becomes the new baseline. Build on it.
-7. If NOT improved, `git reset --hard HEAD~1` to revert to the last good state.
-8. Reflect on the result. Why did it work or fail? Use that insight for the next idea.
+3. Run the experiment via `run_experiment` tool.
+4. The tool returns `improved: true/false` and `best_so_far`.
+5. If improved, KEEP the commit — it becomes the new baseline. Build on it.
+6. If NOT improved, the tool automatically reverts to the last good state.
+7. Reflect on the result. Why did it work or fail? Use that insight for the next idea.
 
 ## Experiment strategy
 

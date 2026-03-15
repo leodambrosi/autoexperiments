@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -17,7 +18,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-from .git_ops import has_git, current_commit, snapshot_files
+from .git_ops import has_git
 from .runner import run_and_record
 from .task_config import TaskConfig
 from .tracker import ExperimentTracker
@@ -93,7 +94,7 @@ TOOL_DECLARATIONS = [
     ),
     types.FunctionDeclaration(
         name="bash",
-        description="Run a shell command in the task directory. Use for git operations (commit, reset, diff, log) and inspecting files.",
+        description="Run a read-only shell command in the task directory for inspection (e.g. ls, cat, grep, git status/log/diff).",
         parameters_json_schema={
             "type": "object",
             "properties": {
@@ -130,12 +131,19 @@ def _tool_read_file(task_dir: Path, args: dict) -> dict:
     return {"content": content, "lines": len(content.splitlines())}
 
 
-def _tool_edit_file(task_dir: Path, args: dict) -> dict:
+def _tool_edit_file(task_dir: Path, config: TaskConfig, args: dict) -> dict:
     path = _resolve_path(task_dir, args["path"])
     if path is None:
         return {"error": "Path escapes task directory"}
     if not path.exists():
         return {"error": f"File not found: {args['path']}"}
+    if not path.is_file():
+        return {"error": f"Not a file: {args['path']}"}
+
+    relative = path.resolve().relative_to(task_dir.resolve()).as_posix()
+    mutable = {Path(p).as_posix() for p in config.mutable_files}
+    if relative not in mutable:
+        return {"error": f"File is read-only for this task: {args['path']}"}
 
     content = path.read_text()
     old = args["old_string"]
@@ -167,9 +175,19 @@ def _tool_run_experiment(task_dir: Path, config: TaskConfig, tracker: Experiment
                 ["git", "commit", "-m", description or "experiment"],
                 cwd=task_dir, capture_output=True, text=True,
             )
-            committed = commit_result.returncode == 0
-        except Exception:
-            committed = False
+            if commit_result.returncode == 0:
+                committed = True
+            else:
+                combined = (commit_result.stdout + "\n" + commit_result.stderr).lower()
+                if "nothing to commit" in combined:
+                    committed = False
+                else:
+                    return {
+                        "error": "Failed to commit mutable changes before experiment.",
+                        "details": (commit_result.stdout + "\n" + commit_result.stderr).strip()[:2000],
+                    }
+        except Exception as e:
+            return {"error": f"Failed to commit mutable changes: {e}"}
     else:
         committed = False
 
@@ -179,20 +197,13 @@ def _tool_run_experiment(task_dir: Path, config: TaskConfig, tracker: Experiment
         log_path=task_dir / "run.log",
     )
 
-    # Auto-revert if not improved
-    if not improved and committed and use_git:
-        subprocess.run(
-            ["git", "reset", "--hard", "HEAD~1"],
-            cwd=task_dir, capture_output=True, text=True,
-        )
-
     output = {
         "status": status,
         "wall_seconds": round(result.wall_seconds, 1),
         "improved": improved,
     }
     if not improved:
-        output["reverted"] = committed
+        output["reverted"] = False
     if result.metric is not None:
         output["metric"] = result.metric
         output["metric_name"] = config.metric.name
@@ -203,6 +214,16 @@ def _tool_run_experiment(task_dir: Path, config: TaskConfig, tracker: Experiment
         output["constraints"] = result.constraints
     if result.crashed:
         output["tail"] = result.tail[-2000:]
+
+    if not improved and committed and use_git:
+        revert_result = subprocess.run(
+            ["git", "reset", "--hard", "HEAD~1"],
+            cwd=task_dir, capture_output=True, text=True,
+        )
+        output["reverted"] = revert_result.returncode == 0
+        if revert_result.returncode != 0:
+            output["revert_error"] = (revert_result.stdout + "\n" + revert_result.stderr).strip()[:2000]
+
     return output
 
 
@@ -215,10 +236,11 @@ def _tool_view_history(task_dir: Path, config: TaskConfig, tracker: ExperimentTr
     fmt = config.metric.format
     rows = []
     for r in records:
+        metric_str = f"{r.metric_value:{fmt}}" if r.metric_value is not None else "---"
         rows.append({
             "id": r.id,
             "commit": r.commit,
-            "metric": f"{r.metric_value:{fmt}}" if r.status != "crash" else "---",
+            "metric": metric_str,
             "status": r.status,
             "wall_seconds": r.wall_seconds,
             "description": r.description,
@@ -237,17 +259,35 @@ def _tool_view_history(task_dir: Path, config: TaskConfig, tracker: ExperimentTr
 
 
 def _tool_bash(task_dir: Path, args: dict) -> dict:
-    command = args["command"]
-    # Block dangerous commands
-    dangerous = ["rm -rf /", "rm -rf ~", "sudo", "mkfs", "> /dev/"]
-    for d in dangerous:
-        if d in command:
-            return {"error": f"Blocked dangerous command containing '{d}'"}
+    command = args["command"].strip()
+    if not command:
+        return {"error": "Empty command"}
+
+    # Keep bash tool read-only and simple to prevent bypassing mutable file limits.
+    disallowed_fragments = ["\n", ";", "&&", "||", "|", ">", "<", "`", "$(", "sudo"]
+    for fragment in disallowed_fragments:
+        if fragment in command:
+            return {"error": f"Blocked command fragment: '{fragment}'"}
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError as e:
+        return {"error": f"Invalid shell syntax: {e}"}
+    if not tokens:
+        return {"error": "Empty command"}
+
+    allowed = {"ls", "pwd", "cat", "sed", "head", "tail", "grep", "rg", "find", "wc", "stat", "git"}
+    if tokens[0] not in allowed:
+        return {"error": f"Command not allowed: {tokens[0]}"}
+
+    if tokens[0] == "git":
+        allowed_git = {"status", "log", "diff", "show", "rev-parse", "branch"}
+        if len(tokens) < 2 or tokens[1] not in allowed_git:
+            return {"error": f"git subcommand not allowed: {' '.join(tokens[:2])}"}
 
     try:
         proc = subprocess.run(
-            command,
-            shell=True,
+            tokens,
             cwd=task_dir,
             capture_output=True,
             text=True,
@@ -269,7 +309,7 @@ def _tool_bash(task_dir: Path, args: dict) -> dict:
 
 TOOL_DISPATCH = {
     "read_file": lambda td, cfg, tr, args: _tool_read_file(td, args),
-    "edit_file": lambda td, cfg, tr, args: _tool_edit_file(td, args),
+    "edit_file": lambda td, cfg, tr, args: _tool_edit_file(td, cfg, args),
     "run_experiment": _tool_run_experiment,
     "view_history": _tool_view_history,
     "bash": lambda td, cfg, tr, args: _tool_bash(td, args),

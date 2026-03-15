@@ -70,7 +70,7 @@ def cmd_history(args: argparse.Namespace) -> None:
     print(f"{'#':>4}  {'commit':7}  {'metric':>12}  {'status':>10}  {'time':>7}  description")
     print("-" * 70)
     for r in records:
-        metric_str = f"{r.metric_value:{fmt}}" if r.status != "crash" else "---"
+        metric_str = f"{r.metric_value:{fmt}}" if r.metric_value is not None else "---"
         print(f"{r.id:4}  {r.commit:7}  {metric_str:>12}  {r.status:>10}  {r.wall_seconds:6.1f}s  {r.description}")
 
     best = tracker.best(direction=config.metric.direction)

@@ -24,7 +24,7 @@ class ExperimentRecord:
     status: str  # "keep", "discard", "crash", "timeout", "constraint_violated"
     description: str
     wall_seconds: float
-    config_snapshot: str  # JSON blob of mutable file contents at time of run
+    config_snapshot: dict[str, str]
 
 
 DB_SCHEMA = """
@@ -151,5 +151,5 @@ class ExperimentTracker:
             status=row["status"],
             description=row["description"],
             wall_seconds=row["wall_seconds"],
-            config_snapshot=row["config_snapshot"],
+            config_snapshot=json.loads(row["config_snapshot"]),
         )

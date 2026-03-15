@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,7 +58,7 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
     task_dir = Path(task_dir)
     timeout = config.time_budget * 2  # hard kill at 2x budget
 
-    log_file = open(log_path, "w") if log_path else None
+    log_file = open(log_path, "w", encoding="utf-8") if log_path else None
     collected: list[str] = []
 
     t0 = time.monotonic()
@@ -70,30 +71,35 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
             stderr=subprocess.STDOUT,
             text=True,
         )
-        while True:
-            line = proc.stdout.readline()
-            if line:
+
+        def _drain_stdout() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
                 collected.append(line)
                 if log_file:
                     log_file.write(line)
                     log_file.flush()
-            elif proc.poll() is not None:
-                break
 
-            if time.monotonic() - t0 > timeout:
-                proc.kill()
-                proc.wait()
-                wall = time.monotonic() - t0
-                output = "".join(collected)
-                if log_file:
-                    log_file.close()
-                return ExperimentResult(
-                    status="timeout",
-                    wall_seconds=wall,
-                    stdout=output,
-                    stderr="",
-                    tail=_tail(output, 50),
-                )
+        reader = threading.Thread(target=_drain_stdout, daemon=True)
+        reader.start()
+
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            reader.join(timeout=1.0)
+            wall = time.monotonic() - t0
+            output = "".join(collected)
+            return ExperimentResult(
+                status="timeout",
+                wall_seconds=wall,
+                stdout=output,
+                stderr="",
+                tail=_tail(output, 50),
+            )
+
+        reader.join(timeout=1.0)
 
         wall = time.monotonic() - t0
         returncode = proc.returncode
@@ -102,8 +108,6 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
     except Exception as e:
         wall = time.monotonic() - t0
         output = "".join(collected)
-        if log_file:
-            log_file.close()
         return ExperimentResult(
             status="crash",
             wall_seconds=wall,
@@ -111,9 +115,9 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
             stderr=str(e),
             tail=_tail(output + "\n" + str(e), 50),
         )
-
-    if log_file:
-        log_file.close()
+    finally:
+        if log_file:
+            log_file.close()
 
     if returncode != 0:
         return ExperimentResult(
@@ -126,6 +130,14 @@ def run_experiment(config: TaskConfig, task_dir: str | Path, log_path: str | Pat
 
     # Extract metric
     metric = _extract_value(config.metric.extract_pattern, output)
+    if metric is None:
+        return ExperimentResult(
+            status="crash",
+            wall_seconds=wall,
+            stdout=output,
+            stderr=f"Failed to extract metric '{config.metric.name}' using pattern: {config.metric.extract_pattern}",
+            tail=_tail(output, 50),
+        )
 
     # Extract constraints
     constraint_values = {}
@@ -189,7 +201,7 @@ def run_and_record(
     tracker.log(
         commit=commit_hash,
         metric_name=config.metric.name,
-        metric_value=result.metric if result.metric is not None else 0.0,
+        metric_value=result.metric,
         status=status,
         description=description,
         wall_seconds=result.wall_seconds,
