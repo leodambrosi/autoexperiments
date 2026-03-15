@@ -112,22 +112,30 @@ TOOL_DECLARATIONS = [
 # Tool implementations
 # ---------------------------------------------------------------------------
 
+def _resolve_path(task_dir: Path, relative: str) -> Path | None:
+    """Resolve a relative path safely within the task directory."""
+    path = task_dir / relative
+    if not path.resolve().is_relative_to(task_dir.resolve()):
+        return None
+    return path
+
+
 def _tool_read_file(task_dir: Path, args: dict) -> dict:
-    path = task_dir / args["path"]
+    path = _resolve_path(task_dir, args["path"])
+    if path is None:
+        return {"error": "Path escapes task directory"}
     if not path.exists():
         return {"error": f"File not found: {args['path']}"}
-    if not path.resolve().is_relative_to(task_dir.resolve()):
-        return {"error": "Path escapes task directory"}
     content = path.read_text()
     return {"content": content, "lines": len(content.splitlines())}
 
 
 def _tool_edit_file(task_dir: Path, args: dict) -> dict:
-    path = task_dir / args["path"]
+    path = _resolve_path(task_dir, args["path"])
+    if path is None:
+        return {"error": "Path escapes task directory"}
     if not path.exists():
         return {"error": f"File not found: {args['path']}"}
-    if not path.resolve().is_relative_to(task_dir.resolve()):
-        return {"error": "Path escapes task directory"}
 
     content = path.read_text()
     old = args["old_string"]
@@ -171,26 +179,30 @@ def _tool_run_experiment(task_dir: Path, config: TaskConfig, tracker: Experiment
             commit=commit_hash,
             metric_name=config.metric.name,
             metric_value=result.metric if result.metric is not None else 0.0,
-            status=result.status,
+            status=status,
             description=args.get("description", ""),
             wall_seconds=result.wall_seconds,
             constraints={k: v for k, v in result.constraints.items()},
             config_snapshot=snapshot,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  [Warning] Failed to log to tracker: {e}")
 
     output = {
-        "status": result.status,
+        "status": status,
         "wall_seconds": round(result.wall_seconds, 1),
+        "improved": improved,
     }
     if result.metric is not None:
         output["metric"] = result.metric
         output["metric_name"] = config.metric.name
+        best = tracker.best(direction=config.metric.direction)
+        if best:
+            output["best_so_far"] = best.metric_value
     if result.constraints:
         output["constraints"] = result.constraints
     if result.crashed:
-        output["tail"] = result.tail[-2000:]  # last 2000 chars for diagnosis
+        output["tail"] = result.tail[-2000:]
     return output
 
 
@@ -255,32 +267,19 @@ def _tool_bash(task_dir: Path, args: dict) -> dict:
 # Agent loop
 # ---------------------------------------------------------------------------
 
-def execute_tool(
-    name: str,
-    args: dict,
-    task_dir: Path,
-    config: TaskConfig,
-    tracker: ExperimentTracker,
-) -> dict:
-    """Dispatch a tool call to its implementation."""
-    if name == "read_file":
-        return _tool_read_file(task_dir, args)
-    elif name == "edit_file":
-        return _tool_edit_file(task_dir, args)
-    elif name == "run_experiment":
-        return _tool_run_experiment(task_dir, config, tracker, args)
-    elif name == "view_history":
-        return _tool_view_history(task_dir, config, tracker, args)
-    elif name == "bash":
-        return _tool_bash(task_dir, args)
-    else:
-        return {"error": f"Unknown tool: {name}"}
+TOOL_DISPATCH = {
+    "read_file": lambda td, cfg, tr, args: _tool_read_file(td, args),
+    "edit_file": lambda td, cfg, tr, args: _tool_edit_file(td, args),
+    "run_experiment": _tool_run_experiment,
+    "view_history": _tool_view_history,
+    "bash": lambda td, cfg, tr, args: _tool_bash(td, args),
+}
 
 
 def run_agent(
     task_dir: Path,
     config: TaskConfig,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.1-pro-preview",
     max_iterations: int = 50,
     api_key: str | None = None,
 ) -> None:
@@ -410,7 +409,11 @@ def run_agent(
 
             print(f"  [Tool] {tool_name}({json.dumps(tool_args, default=str)[:200]})")
 
-            result = execute_tool(tool_name, tool_args, task_dir, config, tracker)
+            handler = TOOL_DISPATCH.get(tool_name)
+            if handler:
+                result = handler(task_dir, config, tracker, tool_args)
+            else:
+                result = {"error": f"Unknown tool: {tool_name}"}
 
             # Truncate large results
             result_str = json.dumps(result, default=str)

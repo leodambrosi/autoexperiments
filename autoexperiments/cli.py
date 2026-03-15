@@ -201,7 +201,7 @@ def main():
     # agent
     p_agent = sub.add_parser("agent", help="Run autonomous experiment agent")
     p_agent.add_argument("task_dir", help="Path to task directory")
-    p_agent.add_argument("-m", "--model", default="gemini-2.5-flash", help="Gemini model (default: gemini-2.5-flash)")
+    p_agent.add_argument("-m", "--model", default="gemini-3.1-pro-preview", help="Gemini model (default: gemini-3.1-pro-preview). Cheaper: gemini-3-flash-preview")
     p_agent.add_argument("-n", "--max-iterations", type=int, default=50, help="Max agent iterations (default: 50)")
     p_agent.add_argument("--api-key", help="Google API key (or set GEMINI_API_KEY env var)")
 
