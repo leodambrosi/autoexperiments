@@ -98,6 +98,7 @@ lora_config = LoraConfig(
     lora_alpha=LORA_ALPHA,
     lora_dropout=LORA_DROPOUT,
     target_modules=LORA_TARGET_MODULES,
+    use_dora=True,
 )
 model = get_peft_model(model, lora_config)
 model.gradient_checkpointing_enable()
