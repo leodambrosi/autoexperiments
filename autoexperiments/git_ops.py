@@ -1,10 +1,13 @@
 """
 Git operations for the experiment loop: branching, committing,
 snapshotting mutable files, and reverting on discard.
+
+All functions gracefully handle missing git repos (for Colab / non-git use).
 """
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -20,17 +23,32 @@ def _run(cmd: list[str], cwd: str | Path) -> str:
     return result.stdout.strip()
 
 
+def has_git(repo: str | Path) -> bool:
+    """Check if the directory is inside a git repo."""
+    try:
+        _run(["git", "rev-parse", "--git-dir"], repo)
+        return True
+    except (GitError, FileNotFoundError):
+        return False
+
+
 def current_branch(repo: str | Path) -> str:
     return _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)
 
 
 def current_commit(repo: str | Path, short: bool = True) -> str:
-    fmt = "--short" if short else ""
-    cmd = ["git", "rev-parse"]
-    if fmt:
-        cmd.append(fmt)
-    cmd.append("HEAD")
-    return _run(cmd, repo)
+    """Return current git commit hash, or a hash of mutable files if not in a git repo."""
+    try:
+        cmd = ["git", "rev-parse"]
+        if short:
+            cmd.append("--short")
+        cmd.append("HEAD")
+        return _run(cmd, repo)
+    except (GitError, FileNotFoundError):
+        # No git — hash the directory path + timestamp as a fallback ID
+        import time
+        tag = f"{Path(repo).resolve()}:{time.time()}"
+        return hashlib.sha1(tag.encode()).hexdigest()[:7]
 
 
 def branch_exists(repo: str | Path, branch: str) -> bool:

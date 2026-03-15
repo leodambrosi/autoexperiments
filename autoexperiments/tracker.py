@@ -19,7 +19,7 @@ class ExperimentRecord:
     commit: str
     parent_commit: str | None
     metric_name: str
-    metric_value: float
+    metric_value: float | None
     constraints: dict[str, float]
     status: str  # "keep", "discard", "crash", "timeout", "constraint_violated"
     description: str
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     git_commit TEXT NOT NULL,
     parent_commit TEXT,
     metric_name TEXT NOT NULL,
-    metric_value REAL NOT NULL,
+    metric_value REAL,
     constraints_json TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -59,7 +59,7 @@ class ExperimentTracker:
         self,
         commit: str,
         metric_name: str,
-        metric_value: float,
+        metric_value: float | None,
         status: str,
         description: str = "",
         parent_commit: str | None = None,
