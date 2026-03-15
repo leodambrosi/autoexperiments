@@ -37,7 +37,7 @@ def current_branch(repo: str | Path) -> str:
 
 
 def current_commit(repo: str | Path, short: bool = True) -> str:
-    """Return current git commit hash, or a hash of mutable files if not in a git repo."""
+    """Return current git commit hash, or a unique timestamp-based ID if not in a git repo."""
     try:
         cmd = ["git", "rev-parse"]
         if short:
